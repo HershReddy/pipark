@@ -1,0 +1,16 @@
+<html>
+  <script type="text/javascript">https://ajax.googleapis.com/ajax/libs/angularjs/1.0.8/angular.min.js</script>
+  <body>
+    <form action="/render" method="post">
+    {{range .Questions}}
+      {{with .QuestionText}}
+        <p>{{.}}: </p>
+      {{else}}
+        <p>No description provided (contact administrator for assistance):</p>
+      {{end}}
+      <div><textarea name="{{.QuestionID}}" rows="1" cols="60"></textarea></div>
+    {{end}}
+    <div><input type="submit" value="Submit Data"></div>
+    </form>
+  </body>
+</html>

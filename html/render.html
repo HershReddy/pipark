@@ -1,0 +1,15 @@
+<html>
+  <body>
+	<form action="/download" method="get">
+    {{range .}}
+      {{with .QuestionText}}
+        <p>{{.}}: </p>
+      {{else}}
+        <p>No description provided (contact administrator for assistance):</p>
+      {{end}}
+      <div><textarea name="{{.QuestionID}}" rows="1" cols="60"></textarea></div>
+    {{end}}
+    <div><input type="submit" value="Download"></div>
+    </form>
+  </body>
+</html>
