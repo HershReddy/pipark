@@ -7,13 +7,14 @@ import (
 	"html/template"
 	"mux"
 	"net/http"
-	"rpc"
-	"rpc/json"
+	// "rpc"
+	// "rpc/json"
+	"io/ioutil"
 	"time"
 	//"bufio"
-	//"fmt"
-	//"log"
+
 	//"os"
+	"encoding/json"
 )
 
 const (
@@ -21,6 +22,14 @@ const (
 	imageWidth                   = 640
 	maximumPictureUpdatesPerHour = 200
 )
+
+type CheckStatusMessage struct {
+	NewPicRequested bool
+}
+
+type UpdateServerMessage struct {
+	LatestImageURL string
+}
 
 type FormData struct {
 	Location   string
@@ -101,8 +110,18 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func newCamState(c *appengine.Context, w http.ResponseWriter, r *http.Request, location string) {
-	vars := mux.Vars(r)
-	latestimageURL := vars["LatestImageURL"]
+	body, _ := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+
+	var usm UpdateServerMessage
+	err := json.Unmarshal(body, &usm)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	latestimageURL := usm.LatestImageURL
 
 	rcs := RasPiCamState{
 		Location:            location,
@@ -114,7 +133,7 @@ func newCamState(c *appengine.Context, w http.ResponseWriter, r *http.Request, l
 		NumUpdatesMonitored: 1,
 	}
 
-	_, err := datastore.Put(*c, datastore.NewIncompleteKey(*c, "RasPiCamState", nil), &rcs)
+	_, err = datastore.Put(*c, datastore.NewIncompleteKey(*c, "RasPiCamState", nil), &rcs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -122,8 +141,19 @@ func newCamState(c *appengine.Context, w http.ResponseWriter, r *http.Request, l
 }
 
 func updateCamState(c *appengine.Context, w http.ResponseWriter, r *http.Request, key *datastore.Key, rcs *RasPiCamState) {
-	vars := mux.Vars(r)
-	latestimageURL := vars["LatestImageURL"]
+
+	body, _ := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+
+	var usm UpdateServerMessage
+	err := json.Unmarshal(body, &usm)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	latestimageURL := usm.LatestImageURL
 
 	var (
 		timeMon time.Time
@@ -147,12 +177,20 @@ func updateCamState(c *appengine.Context, w http.ResponseWriter, r *http.Request
 		RequestImageUpdate:  false,
 		NumUpdatesMonitored: numUps,
 	}
-
-	_, err := datastore.Put(*c, key, rcsnew)
+	err = datastore.Delete(*c, key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	_, err = datastore.Put(*c, datastore.NewIncompleteKey(*c, "RasPiCamState", nil), &rcsnew)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	(*c).Debugf("rcsnew is: %v", rcsnew)
+
 }
 
 func clientUpdateHandler(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +215,36 @@ func clientUpdateHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func clientCheckHandler(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	if r.Method != "GET" {
+		http.Error(w, "Check endpoint only supports GET method.", http.StatusMethodNotAllowed)
+		return
+	}
+	_, cams, _, err := getLocalCameras(&c, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	numcams := len(cams)
+	switch {
+	case numcams <= 0:
+		http.Error(w, "No cameras at this location.  Status cannot be checked", http.StatusMethodNotAllowed)
+	case numcams >= 1:
+		csm := CheckStatusMessage{
+			NewPicRequested: cams[0].RequestImageUpdate,
+		}
+		b, err := json.Marshal(csm)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		c.Debugf("csm values are: %v", csm)
+		c.Debugf("Marshaled JSON is: %s \n", string(b))
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(b)
+	}
+}
+
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "html/root.html")
 }
@@ -185,12 +253,12 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 
 	rcs := RasPiCamState{
-		Location:            "300ThirdStreet",
+		Location:            "testloc",
 		LastPing:            time.Now(),
 		LastImageUpdate:     time.Now(),
 		MonitorStart:        time.Now(),
-		LatestImageURL:      "http://storage.googleapis.com/pipark2014/parkingspots/imgs/300third.jpg",
-		RequestImageUpdate:  false,
+		LatestImageURL:      "http://storage.googleapis.com/pipark2014/parkingspots/imgs/300ThirdStreet/2014-03-04_22%3A44%3A46.30492367_%2B0000_UTC",
+		RequestImageUpdate:  true,
 		NumUpdatesMonitored: 1,
 	}
 
