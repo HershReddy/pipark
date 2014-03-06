@@ -1,8 +1,9 @@
 <html>
   <body>
-    <h1>{{.Location}}</h1>
-    <h2>Image Last updated on {{.Day}} of {{.Month}}, {{.Year}} .</h2>
-    <h3>Displaying 1 of {{.NumCameras}} cameras at this location.</h3>
+    <h1> {{.Location}}</h1>
+    <h2> Image Last updated on {{.Day}} of {{.Month}}, {{.Year}} at {{.Hour}}:{{.Minute}}. </h2>
+    <h3> Displaying 1 of {{.NumCameras}} cameras at this location. </h3>
+    <h3> Camera is currently <b>{{.Alive}}</b> </h3>
     <img src="{{.ImageURL}}" alt="{{.GeoLoc}}" height="{{.Height}}" width="{{.Width}}"> 
     <form action="/request/{{.Location}}" method="post">
       <button type="submit">Request Update</button>

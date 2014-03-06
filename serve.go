@@ -21,6 +21,7 @@ const (
 	imageHeight                  = 480
 	imageWidth                   = 640
 	maximumPictureUpdatesPerHour = 200
+	//AppURL                       = "pipark2014.appspot.com"
 )
 
 type CheckStatusMessage struct {
@@ -29,9 +30,10 @@ type CheckStatusMessage struct {
 
 type UpdateServerMessage struct {
 	LatestImageURL string
+	UpdateImage    bool
 }
 
-type FormData struct {
+type ViewFormData struct {
 	Location   string
 	ImageURL   string
 	GeoLoc     string
@@ -41,6 +43,14 @@ type FormData struct {
 	Year       int
 	Month      time.Month
 	Day        int
+	Hour       int
+	Minute     int
+	Alive      string
+}
+
+type RequestFormData struct {
+	RefreshDuration int
+	ViewURL         string
 }
 
 type RasPiCamState struct {
@@ -91,9 +101,9 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// set up a data structure containing values used to render out the location template
+	// set up a data structure containing values used to render out the view template
 	formTemplate, _ := template.ParseFiles("html/view.html")
-	formdata := FormData{
+	formdata := ViewFormData{
 		Location:   location,
 		ImageURL:   cams[0].LatestImageURL,
 		GeoLoc:     location,
@@ -101,7 +111,14 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 		Width:      imageWidth,
 		NumCameras: len(cams),
 	}
-	formdata.Year, formdata.Month, formdata.Day = cams[0].LastImageUpdate.Date()
+	formdata.Year, formdata.Month, formdata.Day = cams[0].LastImageUpdate.Local().Date()
+	formdata.Hour = cams[0].LastImageUpdate.Local().Hour()
+	formdata.Minute = cams[0].LastImageUpdate.Local().Minute()
+	if time.Now().Sub(cams[0].LastPing).Seconds() > 30 {
+		formdata.Alive = "Offline"
+	} else {
+		formdata.Alive = "Online"
+	}
 
 	if err := formTemplate.Execute(w, formdata); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -153,30 +170,43 @@ func updateCamState(c *appengine.Context, w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	latestimageURL := usm.LatestImageURL
-
 	var (
-		timeMon time.Time
-		numUps  int
+		timeMon        time.Time
+		numUps         int
+		latestImageURL string
+		timeUpdated    time.Time
 	)
 
-	if time.Since(rcs.MonitorStart).Hours() > 1.0 {
-		timeMon = time.Now()
-		numUps = 1
+	if usm.UpdateImage {
+		latestImageURL = usm.LatestImageURL
+		timeUpdated = time.Now()
+
+		if time.Since(rcs.MonitorStart).Hours() > 1.0 {
+			timeMon = time.Now()
+			numUps = 1
+		} else {
+			timeMon = rcs.MonitorStart
+			numUps = rcs.NumUpdatesMonitored + 1
+		}
+
 	} else {
+		latestImageURL = rcs.LatestImageURL
+		timeUpdated = rcs.LastImageUpdate
 		timeMon = rcs.MonitorStart
-		numUps = rcs.NumUpdatesMonitored + 1
+		numUps = rcs.NumUpdatesMonitored
 	}
 
 	rcsnew := RasPiCamState{
 		Location:            rcs.Location,
 		LastPing:            time.Now(),
-		LastImageUpdate:     time.Now(),
+		LastImageUpdate:     timeUpdated,
 		MonitorStart:        timeMon,
-		LatestImageURL:      latestimageURL,
+		LatestImageURL:      latestImageURL,
 		RequestImageUpdate:  false,
 		NumUpdatesMonitored: numUps,
 	}
+	// delete the old camera status object in the datastore so we can replace it with a new one
+	// Google datastore doesn't support updates of properties.  Just wholesale delete and replace of objects
 	err = datastore.Delete(*c, key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -315,7 +345,15 @@ func requestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL := "/view/" + location
-	http.Redirect(w, r, redirectURL, http.StatusOK)
-	return
+	// set up a data structure containing values used to render out the view template
+	formTemplate, _ := template.ParseFiles("html/request.html")
+	formdata := RequestFormData{
+		RefreshDuration: 11,
+		ViewURL:         "/view/" + location,
+	}
+
+	if err := formTemplate.Execute(w, formdata); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
